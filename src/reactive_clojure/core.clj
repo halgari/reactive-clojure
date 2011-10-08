@@ -33,6 +33,9 @@
 	(doseq [sub @(.subscribers this)]
 		   (stop sub)))
 
+(def _std-imp {:add-subscriber _add-subscriber
+		 		    :remove-subscriber _remove-subscriber})
+
 (deftype RFilter
 	[filterfn subscribers]
 	ISubscriber
@@ -43,15 +46,37 @@
 		(_close-subscribers this)))
 (extend RFilter 
 	ISubscribable
-		{:add-subscriber _add-subscriber
-		 :remove-subscriber _remove-subscriber})
+	_std-imp)
+
+(deftype RMap
+	[f subscribers]
+	ISubscriber
+	(push-change [this value]
+		(_notify-subscribers (f value)))
+	(stop [this]
+		(_close-subscribers this)))
+(extend RMap
+	ISubscribable
+	_std-imp)
+
+(extend-type clojure.lang.Atom
+	ISubscribable
+	(add-subscriber [this subscriber]
+		(add-watch subscriber
+			       #(push-change subscriber %4)))
+	(remove-subscriber [this] nil)
+	ISubscriber
+	(push-change [this data]
+		(swap! this
+			   (fn [_] data)))
+	(stop [this] nil))
 
 (deftype PrintSink
 	[subscribers]
 	ISubscriber
 	(push-change [this value]
 		(println value))
-	(stop [this]))
+	(stop [this] nil))
 
 (defn print-sink [] (PrintSink. (atom #{})))
 (defn rfilter [fnc] (RFilter. fnc (atom #{})))
