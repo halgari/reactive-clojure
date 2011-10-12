@@ -1,83 +1,80 @@
 (ns reactive-clojure.core)
 
-(defprotocol ISubscribable
+(defprotocol IPublisher
 	"Defines that this object can be subscribed to from this point on
 	the subscriber will be notifed of changes to this object's state"
-	(add-subscriber [this subscriber])
-	(remove-subscriber [this subscriber]))
+	(add-subscriber [this k pushfn stopfn])
+	(remove-subscriber [this k]))
 
-(defprotocol ISubscriber
+(defprotocol IEdgeNode
 	(push-change [this data])
 	(stop [this]))
 	
-(defn _add-subscriber [this subscriber]
-	(swap! (.subscribers this)
-		   conj subscriber)
-	this)	
+(defn rfilter [pub f]
+	(let [a (atom {})
+		  o (reify
+				IPublisher
+					(add-subscriber [this k pushfn stopfn]
+						(swap! a assoc k (list pushfn stopfn))
+						this)
+					(remove-subscriber [this k]
+						(swap! a dissoc k)
+						this))]
+		  (add-subscriber
+		  	    pub
+		  	    o
+		  	  	#(if (f %)
+		  		      (doseq [s (vals @a)] ((first s) %)))
+		  	  	#(doseq [[key, [_ stopfn]] @a] (stopfn key)))
+		  o))
 
-(defn _remove-subscriber [this subscriber]
-	(swap! (.subscribers this)
-		   disj subscriber)
-	this)
+;(defn rmap [f & options]
+;	(let [a (atom #{})]
+;		  (reify
+;				IPublisher
+;					(add-subscriber [this subscriber]
+;						(swap! a conj subscriber)
+;						this)
+;					(remove-subscriber [this subscriber]
+;						(swap! a conj subscriber)
+;						this)
+;				ISubscriber
+;					(push-change [this val]
+;						(doseq [s @a] 
+;							(push-change s (f val)))))))
+;(defn merge [watch
 
-(defn _reset-subscribers [this]
-	(swap! (.subscribers this)
-		  #{})
-	this)
 
-(defn _notify-subscribers [this value]
-	(doseq [sub @(.subscribers this)]
-		   (push-change sub value)))
-
-(defn _close-subscribers [this]
-	(doseq [sub @(.subscribers this)]
-		   (stop sub)))
-
-(def _std-imp {:add-subscriber _add-subscriber
-		 		    :remove-subscriber _remove-subscriber})
-
-(deftype RFilter
-	[filterfn subscribers]
-	ISubscriber
-	(push-change [this value]
-		(if (filterfn value)
-			(_notify-subscribers this value)))
-	(stop [this]
-		(_close-subscribers this)))
-(extend RFilter 
-	ISubscribable
-	_std-imp)
-
-(deftype RMap
-	[f subscribers]
-	ISubscriber
-	(push-change [this value]
-		(_notify-subscribers (f value)))
-	(stop [this]
-		(_close-subscribers this)))
-(extend RMap
-	ISubscribable
-	_std-imp)
-
+   	   
+	
 (extend-type clojure.lang.Atom
-	ISubscribable
-	(add-subscriber [this subscriber]
-		(add-watch subscriber
-			       #(push-change subscriber %4)))
-	(remove-subscriber [this] nil)
-	ISubscriber
-	(push-change [this data]
-		(swap! this
-			   (fn [_] data)))
-	(stop [this] nil))
+	IPublisher
+	   (add-subscriber [this k pushfn stopfn]
+		   (add-watch this
+					  k
+					  #(pushfn %4)))
+	   (remove-subscriber [this k]
+		   (remove-watch this k))
+	IEdgeNode
+		(push-change [this data]
+			(swap! this #(identity %2) data))
+		(stop [this]
+			nil))
 
-(deftype PrintSink
-	[subscribers]
-	ISubscriber
-	(push-change [this value]
-		(println value))
-	(stop [this] nil))
+(defn ratom [pub initial]
+	(let [o (atom initial)]
+		 (add-subscriber pub
+		 	 o
+		 	 #(swap! o (fn [_ n] n) %)
+		 	 #(identity nil))
+		 o))
 
-(defn print-sink [] (PrintSink. (atom #{})))
-(defn rfilter [fnc] (RFilter. fnc (atom #{})))
+;(defn print-sink []
+;	(reify
+;		ISubscriber
+;			(push-change [this value]
+;				(println value))
+;			(stop [this]
+;				nil)))
+
 

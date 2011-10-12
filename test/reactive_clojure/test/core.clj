@@ -9,19 +9,36 @@
 		 (push-change a 6)
 		 (is (= @a 6))))
 
-(deftest filter-tests
+(deftest ratom-tests
 	(let [a (atom 5)
-		  fil (rfilter #(= % 1))]
-		  (add-subscriber fil a)
+		  r (ratom a 4)]
+		  (is (= @r 4))
+		  (push-change a 7)
+		  (is (= @r 7))))
+
+(deftest filter-tests
+	(let [t (atom 0)
+		  fil (rfilter t #(= % 1))
+		  a (ratom fil 5)]
 		  (is (= @a 5))
-		  (push-change fil 7)
+		  (push-change t 7)
 		  (is (= @a 5))
-		  (push-change fil 1)
+		  (push-change t 1)
 		  (is (= @a 1))))
 
-(deftest pulse-tests
-	(let [a (atom 5)
-		  pulse (rpulse 10)]
-		  (add-subscriber pulse a)
-		  (Thread/sleep 1000)
-		  (is (= @a nil))))
+;(deftest map-tests
+;	(let [m (rmap inc)
+;		  a (atom nil)]
+;		  (add-subscriber m a)		  
+;		  (push-change m 5)
+;		  (is (= @a 6))
+;		  (push-change m 7)
+;		  (is (= @a 8))))
+
+;(deftest pulse-tests
+;	(let [a (atom 5)
+;		  pulse (rpulse 10)]
+;		  (add-subscriber pulse a)
+;		  (Thread/sleep 1000)
+;		  (is (= @a nil))))
+
