@@ -26,14 +26,24 @@
 		  (push-change t 1)
 		  (is (= @a 1))))
 
-;(deftest map-tests
-;	(let [m (rmap inc)
-;		  a (atom nil)]
-;		  (add-subscriber m a)		  
-;		  (push-change m 5)
-;		  (is (= @a 6))
-;		  (push-change m 7)
-;		  (is (= @a 8))))
+(deftest map-tests
+	(let [m (rmap nil inc)
+		  r (ratom m nil)]
+		  (push-change m 5)
+		  (is (= @r 6))
+		  (push-change m 7)
+		  (is (= @r 8))))
+
+(deftest rskip-tests
+	(let [m (rskip nil 2)
+		  r (ratom m nil)]
+		  (is (= @r nil))
+		  (push-change m 7)
+		  (is (= @r nil))
+		  (push-change m 7)
+		  (is (= @r nil))
+		  (push-change m 7)
+		  (is (= @r 7))))
 
 ;(deftest pulse-tests
 ;	(let [a (atom 5)
