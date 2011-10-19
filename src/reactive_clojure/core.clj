@@ -1,5 +1,5 @@
 (ns reactive-clojure.core
-	(:import (java.util.concurrent ConcurrentLinkedQueue))
+	(:import (java.util.concurrent ConcurrentLinkedQueue Executor))
 	(:import (java.util UUID)))
 
 (defn uuid[]
@@ -35,7 +35,7 @@
 	(let [id (node-id node)]
 		(dosync
 			(alter graph-state
-		 	    #(assoc % id {})))))
+		 	    #(assoc % id {:_node node})))))
 
 (defn connect [parent child & opts]
 	(let [mopts (apply hash-map opts)
@@ -51,8 +51,20 @@
 		  
 		  
 		
+(defn to-runnable [f]
+	(reify java.lang.Runnable
+		(run [this]
+			(f))))
 
-				
+(defn instant-executor []
+	(reify java.util.concurrent.Executor
+		(execute [this runnable]
+			(.run runnable))))
+
+(def default-executor (instant-executor))
+
+(defn update-slot [node slot value]
+	(let node [
 	
 
 (defprotocol IPublisher
