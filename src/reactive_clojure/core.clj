@@ -1,4 +1,59 @@
-(ns reactive-clojure.core)
+(ns reactive-clojure.core
+	(:import (java.util.concurrent ConcurrentLinkedQueue))
+	(:import (java.util UUID)))
+
+(defn uuid[]
+	(java.util.UUID/randomUUID))
+
+(defprotocol INode
+	(get-signals [this])
+	(get-slots [this])
+	(signal [this k v])
+	(stop [this k])
+	(node-id [this]))
+
+(defn rfilter [f]
+	(let [id (uuid)]
+		(reify
+			INode
+			(get-signals [this]
+				[:default])
+			(get-slots [this]
+				[:default])
+			(signal [this k v]
+				(if (f v)
+					{:default v}
+					nil))
+			(node-id [this] 
+				id))))
+
+(def graph-state (ref {}))
+
+(def action-queue (java.util.concurrent.ConcurrentLinkedQueue. ))
+
+(defn register [node]
+	(let [id (node-id node)]
+		(dosync
+			(alter graph-state
+		 	    #(assoc % id {})))))
+
+(defn connect [parent child & opts]
+	(let [mopts (apply hash-map opts)
+		  mopts (merge {:signal :default :slot :default} mopts)
+		  {:keys [signal slot]} mopts
+		  parent-id (node-id parent)
+		  child-id (node-id child)]
+		  (dosync
+		  	  (alter graph-state
+		  	  	  	 #(assoc-in %
+		  	  	  	 	        [parent-id signal child-id]
+		  	  	  	 	        slot)))))
+		  
+		  
+		
+
+				
+	
 
 (defprotocol IPublisher
 	"Defines that this object can be subscribed to from this point on
@@ -34,6 +89,16 @@
 (defn stopfns [a] 
 	(map second (vals @a)))
 
+(defrecord State [user subs])
+(defrecord Subscriber [pushfn stopfn])
+
+(defn add-subscriber [state k sub]
+	(State. (:user state) 
+		    (assoc (:subs state)
+		    	   k
+		    	   sub)))
+
+
 
 (defn make-publisher [pub pushfn stopfn]
 	"Constructs a generic publisher using the specified
@@ -49,34 +114,38 @@
 	
 	stopfn should be a function that takes a single argument: a sequence
 	of subscriber entries in the same format as pushfn"
-	(let [a (atom {})
+	(let [a (agent {})
 		  o (reify
 				IPublisher
 					(add-subscriber [this k subpushfn substopfn]
-						(swap! a assoc k (list subpushfn substopfn))
+						(send a assoc
+							    k
+							    [subpushfn substopfn])
 						this)
 					(remove-subscriber [this k]
-						(swap! a dissoc k)
+						(send a dissoc
+							    k)
 						this)
 		        IEdgeNode
 		            (push-change [this val]
-		            	(pushfn val a))
+		            	(send a pushfn val))
 		            (stop [this]
-		            	(stopfn a)))]
+		            	(send a stopfn)))]
 		  (if (not (nil? pub))
 		  	  (add-subscriber
 					pub
 					o
-					#(pushfn % a)
-					#(stopfn a)))
+					#(send a pushfn %)
+					#(send a stopfn)))
 		  o))
-	
+
 (defn rmap [pub f]
 	"Applies f to each value published by pub, this value
 	is then in turn published to any subscribers."
 	(make-publisher pub
-		       #(let [v (f %1)]
-		       	     (doseq [s (pushfns %2)] (s v)))
+		       #(let [v (f %2)]
+		       	     (doseq [s (pushfns %1)] (s v))
+		       	     %1)
 		       #(doseq [s (stopfns %)] (s))))
 	
 (defn rfilter [pub f]
@@ -84,8 +153,10 @@
 	true the value is passed on to all subscribers. If not, 
 	the value is dropped."
 	(make-publisher pub
-		       #(if (f %1)
-		       	     (doseq [s (pushfns %2)] (s %1)))
+		       #((do (println (f %2) %2 (count %1) (first %1))
+		       	  (if (f %2)
+		       	     (doseq [s (pushfns %1)] (s %2)))
+		       	   %1))
 		       #(doseq [s (stopfns %)] (s))))
 
 (defn rskip [pub cnt]
@@ -96,7 +167,7 @@
 			#(do (if (<= @a cnt)
 					(swap! a inc))
 				 (if (> @a cnt)
-				 	(doseq [s (pushfns %2)] (s %1))))
+				 	(doseq [s (pushfns %1)] (s %2))))
 			#(doseq [s (stopfns %)] (s)))))
 		       
 (defn rtake [pub cnt]
@@ -105,11 +176,11 @@
 		(make-publisher pub
 			#(do (swap! a inc)
 				 (if (<= @a cnt)
-				 	 (doseq [s (pushfns %2)] (s %1)))
+				 	 (doseq [s (pushfns %1)] (s %2)))
 				 (if (= @a cnt)
 				 	(do 
-				 		(doseq [s (stopfns %2)] (s %1))
-				 		(swap! %2 (fn [_] (identity {}))))))
+				 		(doseq [s (stopfns %1)] (s %2))
+				 		(swap! %1 (fn [_] (identity {}))))))
 			#(doseq [s %] (s)))))
 
 (extend-type clojure.lang.Atom
