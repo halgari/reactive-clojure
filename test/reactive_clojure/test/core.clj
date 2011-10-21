@@ -13,6 +13,7 @@
 		  (update-slot f :default 2)
 		  (is (= @a nil))
 		  (update-slot f :default 1)
+		  (println (show-state))
 		  (is (= @a 1))))
 
 ;(deftest atom-tests

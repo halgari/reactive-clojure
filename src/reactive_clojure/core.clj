@@ -1,4 +1,5 @@
 (ns reactive-clojure.core
+	(:require [dorothy.core :as dot])
 	(:import (java.util.concurrent ConcurrentLinkedQueue Executor))
 	(:import (java.util UUID)))
 
@@ -64,7 +65,16 @@
 (defn instant-coordinator [node]
 	#(% node))
 
-(def default-coordinator instant-coordinator)
+(defn threaded-coordinator [node]
+	(let [a (agent nil)]
+		 (fn [f] 
+		 	 (send a 
+		 	 	   (fn [_] 
+		 	 	   	   (do (f node)
+		 	 	  	        nil))))))
+
+;(def default-coordinator instant-coordinator)
+(def default-coordinator threaded-coordinator)
 
 (defn register [node]
 	(let [id (node-id node)]
@@ -96,7 +106,12 @@
 		(execute [this runnable]
 			(.run runnable))))
 
-(def default-executor (instant-executor))
+(defn threaded-executor []
+	(java.util.concurrent.Executors/newCachedThreadPool))
+
+;(def default-executor (instant-executor))
+
+(def default-executor (threaded-executor))
 
 (def update-slot nil)
 
@@ -111,8 +126,6 @@
 
 (defn update-slot [node-id slot-id value]
 	(let [co (get-in @graph-state [node-id :_co])]
-		 (println @graph-state node-id)
-		 (println co)
 		 (co (fn [nd] 
 		 		 (let [result (signal nd slot-id value)]
 					  (doseq [[signal-id newval] result]
@@ -120,6 +133,29 @@
 										   signal-id 
 										   newval)))))))
 
+(defn graph-signal [signal node]
+	(if (not (#{:_name :_co} (first signal)))
+		(map #(identity [node (first %)])
+			(second signal))))
+
+(defn graph-node [node]
+	(map graph-signal 
+		 (filter #(not (contains? [:_node :_co] %))
+		 	    (second node))
+		 (repeat (first node))))
+
+(defn flatten-graph [graph]
+	(flatten (map graph-node
+		 graph)))
+
+(defn show-state []
+	(let [s (vec (flatten-graph @graph-state))]
+    (println s)
+	(-> (dot/digraph
+			[s])
+		dot/dot
+		dot/show!)
+	(java.lang.Thread/sleep 4000)))
 
 	
 ; 
