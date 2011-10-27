@@ -12,11 +12,23 @@
 		(execute [this runnable]
 			(.run runnable))))
 
-;(def executor (java.util.concurrent.Executors/newCachedThreadPool))
-(def executor (instant-executor))
+(def threaded-executor-inst (java.util.concurrent.Executors/newCachedThreadPool))
+(def instant-executor-inst (instant-executor))
+
+(def default-executor (atom threaded-executor-inst))
+
+(defn use-instant-executor! []
+	(swap! default-executor
+		   #(%2)
+		   instant-executor-inst))
+
+(defn use-instant-executor! []
+	(swap! default-executor
+		   #(%2)
+		   threaded-executor-inst))
 
 (defn queue-action [node]
-	(.execute executor node))
+	(.execute @default-executor node))
 
 (defn swap-with-old! [a f]
 	(loop [a a]
@@ -26,7 +38,16 @@
 			  	  (recur a)
 			  	  old))))
 			  
-			    
+
+(defn generate-signal-fn [signal]
+    (if (map? signal)
+        (fn [s]
+            (apply hash-map
+                (flatten
+                    (map #(list (get signal (first %))
+                                            (second %))
+                         s))))
+        signal))
 
 (defn make-node [f]
 	(let [a (atom {})
@@ -34,10 +55,11 @@
 		(reify 
 			INode
 			(connect [this signal node]
-				(swap! a
-					   assoc
-					   node
-					   signal)
+			    (let [newfn (generate-signal-fn signal)]
+                     (swap! a
+                            assoc
+                            node
+                            newfn))
 				node)
 			(disconnect [this node]
 				(swap! a
@@ -60,8 +82,22 @@
 					  pval (.peek v)]
 					(if (not (nil? pval))
 						(let [newval (f pval)]
-							(doseq [[node signal] @a]
-								 (node (signal newval)))
-							(recur))
-						nil))))))
-			
+							(if (not (nil? newval))
+								(doseq [[node signal] @a]
+									 (node (signal newval)))))
+						(recur)))))))
+						
+
+(defn r-filter [f]
+	"Creates a node that takes each incoming signal and 
+	filters it through f if f returns true, the signal 
+	is emitted on :default	otherwise, the signal is dropped"
+	(make-node #(if (f %)
+			        {:default %}
+			        nil)))
+
+(defn r-map [f]
+	"Creates a node that takes each incoming signal, 
+	 applies f to it and emits the result on :default"
+	(make-node #(identity {:default (f %)})))
+
