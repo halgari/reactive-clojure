@@ -22,28 +22,33 @@
 	(await from))
 
 (defn emit 
-	([node k v]
-		(send node
-			 (fn [state k v] 
-				 (let [nr ((:f state) (:listeners state) k v)]
-					  (assoc state :state nr)))
-			 k v))
-	([node listener k v]
-		(node (:filter-fn listener) (:stopf-fn listener) k v))
-	([node filter-fn stopf-fn k v]
-		(if (= k :stop)
-			(emit node (stopf-fn k) v)
-			(emit node (filter-fn k) v))))
+    ([node k v]
+        (send node
+             (fn [state k v] 
+                 ((:f state) state k v))
+             k v))
+    ([node listener k v]
+        (emit node (:filter-fn listener) (:stopf-fn listener) k v))
+    ([node filter-fn stopf-fn k v]
+        (if (= k :stop)
+            (emit node (stopf-fn k) v)
+            (emit node (filter-fn k) v))))
 
-(defn emit-all [listeners k v]
-	(doseq [l listeners]
-		   (emit l k v)))
+(defn emit-all [state k v]
+	(doseq [[node fns] (:listeners state)]
+		   (emit node fns k v)))
 	 
 
+(defn r-do [f]
+	(make-node (fn [state k v]
+			 	   (f k v)
+			 	   state)))
+
 (defn r-filter [f]
-	(make-node (fn [l k v]
+	(make-node (fn [state k v]
 			   	   (if (f v)
-			   	   	   (emit-all l k v)))))
+			   	   	   (emit-all state k v))
+			   	   state)))
 			   	   	   
 						
 		   
