@@ -2,102 +2,49 @@
 	(:import (java.util.concurrent ConcurrentLinkedQueue Executor))
 	(:import (java.util UUID)))
 
-(defprotocol INode
-	(connect [this signal node])
-	(push-update [this value])
-	(disconnect [this node]))
 
-(defn instant-executor []
-	(reify java.util.concurrent.Executor
-		(execute [this runnable]
-			(.run runnable))))
+(defrecord NState [state f listeners])
 
-(def threaded-executor-inst (java.util.concurrent.Executors/newCachedThreadPool))
-(def instant-executor-inst (instant-executor))
+(defrecord NListener [filter-fn stopf-fn])
+ 
+(defn make-node [f & opts]
+	(let [{:keys [state]} (apply hash-map opts)
+		  ns (NState. state f {})]
+		 (agent ns)))
 
-(def default-executor (atom threaded-executor-inst))
+(defn connect [from filter-fn stopf-fn to]
+	(send from
+		  #(assoc-in %1 [:listeners %2] 
+		  	  (NListener. %3 %4))
+		   to
+		   filter-fn
+		   stopf-fn)
+	(await from))
 
-(defn use-instant-executor! []
-	(swap! default-executor
-		   #(%2)
-		   instant-executor-inst))
+(defn emit 
+	([node k v]
+		(send node
+			 (fn [state k v] 
+				 (let [nr ((:f state) (:listeners state) k v)]
+					  (assoc state :state nr)))
+			 k v))
+	([node listener k v]
+		(node (:filter-fn listener) (:stopf-fn listener) k v))
+	([node filter-fn stopf-fn k v]
+		(if (= k :stop)
+			(emit node (stopf-fn k) v)
+			(emit node (filter-fn k) v))))
 
-(defn use-instant-executor! []
-	(swap! default-executor
-		   #(%2)
-		   threaded-executor-inst))
-
-(defn queue-action [node]
-	(.execute @default-executor node))
-
-(defn swap-with-old! [a f]
-	(loop [a a]
-		(let [old @a
-			  new (f old)]
-			  (if (not (.compareAndSet a old new))
-			  	  (recur a)
-			  	  old))))
-			  
-
-(defn generate-signal-fn [signal]
-    (if (map? signal)
-        (fn [s]
-            (apply hash-map
-                (flatten
-                    (map #(list (get signal (first %))
-                                            (second %))
-                         s))))
-        signal))
-
-(defn make-node [f]
-	(let [a (atom {})
-		  q (atom (clojure.lang.PersistentQueue/EMPTY))]
-		(reify 
-			INode
-			(connect [this signal node]
-			    (let [newfn (generate-signal-fn signal)]
-                     (swap! a
-                            assoc
-                            node
-                            newfn))
-				node)
-			(disconnect [this node]
-				(swap! a
-					   dissoc
-					   node)
-				node)
-
-			clojure.lang.IFn
-			(invoke [this value]
-				(let [nq (swap! q
-								#(.cons %1 %2)
-								value)]
-					(if (nil? (.peek (.pop nq)))
-						(queue-action this)
-						nil)))
-			java.lang.Runnable
-			(run [this]
-				(let [v (swap-with-old! q
-										#(.pop %))
-					  pval (.peek v)]
-					(if (not (nil? pval))
-						(let [newval (f pval)]
-							(if (not (nil? newval))
-								(doseq [[node signal] @a]
-									 (node (signal newval)))))
-						(recur)))))))
-						
+(defn emit-all [listeners k v]
+	(doseq [l listeners]
+		   (emit l k v)))
+	 
 
 (defn r-filter [f]
-	"Creates a node that takes each incoming signal and 
-	filters it through f if f returns true, the signal 
-	is emitted on :default	otherwise, the signal is dropped"
-	(make-node #(if (f %)
-			        {:default %}
-			        nil)))
-
-(defn r-map [f]
-	"Creates a node that takes each incoming signal, 
-	 applies f to it and emits the result on :default"
-	(make-node #(identity {:default (f %)})))
+	(make-node (fn [l k v]
+			   	   (if (f v)
+			   	   	   (emit-all l k v)))))
+			   	   	   
+						
+		   
 
