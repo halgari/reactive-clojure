@@ -74,8 +74,8 @@
     "Creates a node that accepts cnt values before stopping the stream via ::stop"
     (make-node (fn [state k v]
                    (match [k v (:state state)]
-                       [:default _ (a :when #(< % cnt))]
-                            (if (= (dec cnt) (:state state))
+                       [:default _ (ccnt :when #(< % cnt))]
+                            (if (= (dec cnt) ccnt)
                                 (do (emit-all state :default v)
                                     (emit-all state :default ::stop)
                                     (NState. :stopped null-fn nil))
@@ -87,6 +87,19 @@
                                 (do (emit-all state :default ::stop)
                                     (NState. :stopped null-fn nil))))
                :state 0))
+
+(defn r-skip [cnt]
+    (make-node (fn [state k v]
+                   (match [k v (:state state)]
+                       [:default _ (a :when #(>= % cnt))]
+                            (emit-all state :default v))
+                       [:default _ (a :when #(> % cnt))]
+                            (map-state state inc)
+                       [:default ::stop _]
+                            (do (emit-all state :default ::stop)
+                                (NState. :stopped null-fn nil)))))
+                            
+                       
                        
                         
            
